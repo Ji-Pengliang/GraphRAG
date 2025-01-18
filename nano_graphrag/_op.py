@@ -840,7 +840,7 @@ async def _build_local_query_context(
 
     retrieved_results = []
     for idx, n in enumerate(node_datas):
-        if n['entity_type'] != 'location':
+        if n['entity_type'] != 'base':
             continue
         retrieved_results.append(results[idx]['entity_name'])
     
@@ -955,10 +955,42 @@ async def local_query(
     sys_prompt = sys_prompt_temp.format(
         context_data=context, response_type=query_param.response_type
     )
+
+    sys_prompt = f"""As an environmental analysis expert, answer the following query using the provided context information:
+        
+        Context Information:
+        {context}
+
+        Instructions:
+        1. If the query is asking for a specific location, provide the best one answer based on the context, in the EXACT following parseable format: 
+            1.1 Choose the SINGLE best location from the base locations that best matches the query
+            1.2 Consider the entire hierarchical context - a location's parent areas may provide important context
+            1.3 Return your answer in the EXACT following JSON format:
+            {{
+                "name": "Best matching base location name",
+                "caption": "Best matching base location caption",
+                "position": {{
+                    "x": "Best matching x coordinate",
+                    "y": "Best matching y coordinate"
+                }},
+                "image_path": "Best matching image_path",
+                "parent_areas": ["List of parent area names"],
+                "reasons": "Explain why this location is the best match, including how its parent areas contribute to the decision"
+            }}
+
+
+        2. If the query is asking for a general environmental analysis, provide a detailed analysis of the environment based on the context.
+        """
+
     response = await use_model_func(
-        query,
+        f'Current Query: {query}',
         system_prompt=sys_prompt,
     )
+
+    # response = await use_model_func(
+    #     query,
+    #     system_prompt=sys_prompt,
+    # )
     return response
 
 

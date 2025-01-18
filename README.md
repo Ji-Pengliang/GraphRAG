@@ -37,9 +37,17 @@ Initialize the Knowledge Graph for GraphRAG from the semantic forest of Embodied
 python evaluate.py --initialize_kg_from_semantic_forest
 ```
 
-### 2. Start Evaluation
+### 2. Start Query
 
-Start evaluation from query json:
+Start query from json file:
+
+```bash
+python evaluate.py --query
+```
+
+### 3. Start Evaluation
+
+Start evaluation from query results:
 
 ```bash
 python evaluate.py
