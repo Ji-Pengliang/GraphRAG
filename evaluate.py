@@ -145,7 +145,7 @@ def extract_locations_from_result(results, name2node):
             if node_name not in name2node:
                 continue
             node = name2node[node_name]
-            if node['type'] != 'location':
+            if node['type'] != 'base':
                 continue
             d_transformed = {
                 'name': node['name'],
@@ -155,8 +155,8 @@ def extract_locations_from_result(results, name2node):
             }
             ret.append(d_transformed)
 
-        all_queries.append(result['query'])
         all_rets.append(ret)
+        all_queries.append(result['query'])
         all_responses.append(response)
 
     return all_rets, all_queries, all_responses
