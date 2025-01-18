@@ -274,19 +274,18 @@ def main():
         working_dir=WORKING_DIR,
     )
 
+    # Load the semantic forest graph
+    G = nx.read_gml(graph_path)
+
+    # Extract information from the graph
+    entities, relationships, chunks, name2node = extract_entities_relationships(G)
+    custom_kg = {
+        "entities": entities,
+        "relationships": relationships,
+        "chunks": chunks,
+    }
+    
     if args.initialize_kg_from_semantic_forest:
-        # Load the semantic forest graph
-        G = nx.read_gml(graph_path)
-
-        # Extract information from the graph
-        entities, relationships, chunks, name2node = extract_entities_relationships(G)
-        custom_kg = {
-            "entities": entities,
-            "relationships": relationships,
-            "chunks": chunks,
-        }
-
-        # Optionally, insert the KG
         rag.insert_custom_kg(custom_kg)
         print("Knowledge Graph for GraphRAG has been successfully initialized and inserted.")
         return
