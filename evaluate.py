@@ -506,6 +506,14 @@ def main():
         'longitude': -79.9436
     }
 
+    time_str = datetime.now().isoformat()
+    immediate_output_path = os.path.join(
+        results_dir, f"results_graphrag_metadata_immediate_{time_str}.json"
+    )
+    detailed_output_path = os.path.join(
+        results_dir, f"results_graphrag_metadata_{time_str}.json"
+    )
+
     # Compute metrics
     results = []
     for idx, retrieved_nodes in tqdm(enumerate(retrieved_results), total=len(retrieved_results)):
@@ -518,11 +526,11 @@ def main():
         result = evaluate_query(query_item, retrieved_nodes, responses[idx])
         results.append(result)
 
-    # Save detailed results
-    time_str = datetime.now().isoformat()
-    detailed_output_path = os.path.join(
-        results_dir, f"results_graphrag_metadata_{time_str}.json"
-    )
+        # Save immediate results
+        with open(immediate_output_path, 'a') as file:
+            json_line = json.dumps(result)  # Convert result to a JSON string
+            file.write(json_line + '\n')
+
     with open(detailed_output_path, "w") as f:
         json.dump(results, f, indent=4)
 
