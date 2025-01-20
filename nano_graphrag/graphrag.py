@@ -6,6 +6,7 @@ from functools import partial
 from typing import Callable, Dict, List, Optional, Type, Union, cast
 import ipdb
 import tiktoken
+import json
 
 
 from ._llm import (
@@ -223,6 +224,7 @@ class GraphRAG:
         return loop.run_until_complete(self.aquery(query, param))
 
     async def aquery(self, query: str, param: QueryParam = QueryParam()):
+        param.mode = "local"
         if param.mode == "local" and not self.enable_local:
             raise ValueError("enable_local is False, cannot query in local mode")
         if param.mode == "naive" and not self.enable_naive_rag:
@@ -398,6 +400,7 @@ class GraphRAG:
                 description = entity_data.get("description", "No description provided")
                 # source_id = entity_data["source_id"]
                 source_chunk_id = entity_data.get("source_id", "UNKNOWN")
+                clusters = entity_data.get("cluster", "")
                 source_id = chunk_to_source_map.get(source_chunk_id, "UNKNOWN")
 
                 # Log if source_id is UNKNOWN
@@ -411,6 +414,7 @@ class GraphRAG:
                     "entity_type": entity_type,
                     "description": description,
                     "source_id": source_id,
+                    "clusters": json.dumps(clusters),
                 }
                 # Insert node data into the knowledge graph
                 await self.chunk_entity_relation_graph.upsert_node(
@@ -482,6 +486,13 @@ class GraphRAG:
                     for dp in all_entities_data
                 }
                 await self.entities_vdb.upsert(data_for_vdb)
+
+            await self.chunk_entity_relation_graph.clustering(
+                self.graph_cluster_algorithm
+            )
+            await generate_community_report(
+                self.community_reports, self.chunk_entity_relation_graph, asdict(self)
+            )
 
         finally:
             if update_storage:

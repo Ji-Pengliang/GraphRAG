@@ -7,6 +7,7 @@ import scipy.stats
 from datetime import datetime
 from tqdm import tqdm
 import argparse
+from collections import defaultdict
 from nano_graphrag import GraphRAG, QueryParam
 import ipdb
 import traceback
@@ -16,8 +17,8 @@ from llm import LLMInterface
 from pathlib import Path
 
 llm = LLMInterface()
-# image_dir = Path('/root/code/E-RAG/data_generation/datasets/CMU_500/images/merged')
-image_dir = Path('/root/code/E-RAG/data_generation/datasets/tokyo/images/merged')
+image_dir = Path('/root/code/E-RAG/data_generation/datasets/CMU_500/images/merged')
+# image_dir = Path('/root/code/E-RAG/data_generation/datasets/tokyo/images/merged')
 
 def modify_jsonl_file(file_path, query_value, idx, result):
     """
@@ -76,6 +77,9 @@ def extract_entities_relationships(G):
         name2node[distinct_name.lower()] = data
 
     # Process nodes for entities, relationships, chunks
+    cluster_ids = {}
+    cluster_ids_cnt = defaultdict(lambda: 0)
+    name2entities = {}
     for node_id, data in G.nodes(data=True):
         entity = {}
         chunk = {}
@@ -101,6 +105,9 @@ def extract_entities_relationships(G):
             entity['description'] = data.get('summary', '')
             
             members = data.get('members', [])
+            entity['members'] = members
+            entity['level'] = data['level']
+
             contents = []
             for src_id in members:
                 relationship = {}
@@ -115,6 +122,9 @@ def extract_entities_relationships(G):
                 
                 relationships.append(relationship)
                 contents.append(source_name)
+
+            cluster_ids[distinct_name] = cluster_ids_cnt[data.get('level')]
+            cluster_ids_cnt[data.get('level')] += 1
             
             content = "\n".join(f"{k}: {v}" for k, v in entity.items())
             content += f"\n{distinct_name} contains these areas: {', '.join(contents)}"
@@ -124,7 +134,32 @@ def extract_entities_relationships(G):
 
         entities.append(entity)
         chunks.append(chunk)
+        name2entities[distinct_name.lower()] = entity
     
+    def assign_info(entity, level_id, cluster_id):
+        members = entity['members']
+        for src_id in members:
+            source_name = node_name_map[src_id]
+            entity = name2entities[source_name.lower()]
+                
+            info = {"level": level_id, "cluster": cluster_id}
+            if not entity.get('level', ''):
+                if 'cluster' not in entity:
+                    entity['cluster'] = [info]
+                else:
+                    entity['cluster'].append(info)
+            else:
+                assign_info(entity, level_id, cluster_id)
+
+    for node_id, data in G.nodes(data=True):
+        distinct_name = node_name_map[node_id]
+        level = data.get('level', '')
+        entity = name2entities[distinct_name.lower()]
+        if level:
+            assign_info(entity, level-1, cluster_ids[distinct_name])
+            
+    entities = [entity for entity in entities if entity.get('entity_type', '') == 'base']
+
     return entities, relationships, chunks, name2node
 
 def extract_locations_from_result(results, name2node):
@@ -479,18 +514,18 @@ def main():
     # Directories and paths (adjust as needed)
     PROJECT_ROOT = "/root/code/E-RAG/Embodied-RAG"
     
-    graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/tokyo/semantic_forest_tokyo.gml")
-    # graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/CMU_500/semantic_forest_CMU_500.gml")
+    # graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/tokyo/semantic_forest.gml")
+    graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/CMU_500/semantic_forest_CMU_500.gml")
 
-    # query_path = os.path.join(PROJECT_ROOT, "explicit_location_queries_tokyo.txt")
-    query_path = os.path.join(PROJECT_ROOT, "implicit_location_queries_tokyo.txt")
+    query_path = os.path.join(PROJECT_ROOT, "explicit_location_queries.txt")
+    # query_path = os.path.join(PROJECT_ROOT, "implicit_location_queries.txt")
     
     results_dir = os.path.join(PROJECT_ROOT, "evaluation_results")
 
-    # results_retrieval_path = os.path.join(results_dir, "graphrag_explicit_tokyo.jsonl")
-    results_retrieval_path = os.path.join(results_dir, "graphrag_implicit_tokyo.jsonl")
+    results_retrieval_path = os.path.join(results_dir, "graphrag_explicit.jsonl")
+    # results_retrieval_path = os.path.join(results_dir, "graphrag_implicit.jsonl")
 
-    WORKING_DIR = "./work_dir_tokyo"
+    WORKING_DIR = "./work_dir_test"
     if not os.path.exists(WORKING_DIR):
         os.mkdir(WORKING_DIR)
 
@@ -521,7 +556,7 @@ def main():
 
     if args.query:
         for idx, query in enumerate(queries):
-            result = rag.query(query, param=QueryParam(mode="local"))
+            result = rag.query(query)
             modify_jsonl_file(results_retrieval_path, query, idx, result)
         print("Query results has been successfully saved.")
         return
@@ -534,17 +569,17 @@ def main():
     retrieved_results, queries, responses = extract_locations_from_result(output, name2node)
 
     # Default center for Google Maps search (Example: Tokyo)
-    # default_center = {
-    #     'latitude': 40.443336,
-    #     'longitude': -79.944023
-    # }
     default_center = {
-        'latitude': 35.6812,
-        'longitude': 139.7671
+        'latitude': 40.443336,
+        'longitude': -79.944023
     }
+    # default_center = {
+    #     'latitude': 35.6812,
+    #     'longitude': 139.7671
+    # }
 
     # time_str = datetime.now().isoformat()
-    time_str = datetime.now().isoformat() + '_tokyo'
+    time_str = datetime.now().isoformat()
     
     immediate_output_path = os.path.join(
         results_dir, f"results_graphrag_metadata_immediate_{time_str}.json"

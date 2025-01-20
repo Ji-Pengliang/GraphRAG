@@ -6,6 +6,7 @@ from typing import Union
 from collections import Counter, defaultdict
 from ._splitter import SeparatorSplitter
 import ipdb
+import time
 from ._utils import (
     logger,
     clean_str,
@@ -831,7 +832,13 @@ async def _build_local_query_context(
     text_chunks_db: BaseKVStorage[TextChunkSchema],
     query_param: QueryParam,
 ):
-    results = await entities_vdb.query(query, top_k=query_param.top_k)
+
+    start_time = time.time()
+    results = await entities_vdb.query(query, top_k=20)
+    elapsed_time = time.time() - start_time
+    with open("time.txt", "a") as file:
+        file.write(f"Elapsed time: {elapsed_time:.6f} seconds\n")
+
     if not len(results):
         return None
     node_datas = await asyncio.gather(
@@ -845,7 +852,7 @@ async def _build_local_query_context(
         retrieved_results.append(results[idx]['entity_name'])
     
     data = {'results': retrieved_results}
-    with open('/root/code/E-RAG/Embodied-RAG/evaluation_results/graphrag_implicit_tokyo.jsonl', 'a') as f:
+    with open('/root/code/E-RAG/Embodied-RAG/evaluation_results/graphrag_implicit_test.jsonl', 'a') as f:
         json.dump(data, f)  
         f.write('\n')
 
@@ -1048,6 +1055,7 @@ async def global_query(
     query_param: QueryParam,
     global_config: dict,
 ) -> str:
+    start_time = time.time()
     community_schema = await knowledge_graph_inst.community_schema()
     community_schema = {
         k: v for k, v in community_schema.items() if v["level"] <= query_param.level
@@ -1079,6 +1087,10 @@ async def global_query(
         reverse=True,
     )
     logger.info(f"Revtrieved {len(community_datas)} communities")
+    
+    elapsed_time = time.time() - start_time
+    with open("time.txt", "a") as file:
+        file.write(f"Elapsed time: {elapsed_time:.6f} seconds\n")
 
     map_communities_points = await _map_global_communities(
         query, community_datas, query_param, global_config
@@ -1118,6 +1130,7 @@ Importance Score: {dp['score']}
     if query_param.only_need_context:
         return points_context
     sys_prompt_temp = PROMPTS["global_reduce_rag_response"]
+
     response = await use_model_func(
         query,
         sys_prompt_temp.format(
