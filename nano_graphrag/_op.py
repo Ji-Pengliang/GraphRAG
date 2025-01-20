@@ -845,7 +845,7 @@ async def _build_local_query_context(
         retrieved_results.append(results[idx]['entity_name'])
     
     data = {'results': retrieved_results}
-    with open('/root/code/E-RAG/Embodied-RAG/evaluation_results/graphrag.jsonl', 'a') as f:
+    with open('/root/code/E-RAG/Embodied-RAG/evaluation_results/graphrag_implicit_tokyo.jsonl', 'a') as f:
         json.dump(data, f)  
         f.write('\n')
 

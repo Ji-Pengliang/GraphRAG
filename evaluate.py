@@ -161,108 +161,127 @@ def extract_locations_from_result(results, name2node):
 
     return all_rets, all_queries, all_responses
 
-def compute_semantic_relativity(query: str, retrieved_nodes: List[Dict]) -> Dict[str, float]:
-    """Compute semantic relativity using GPT-4 to score relevance"""
-    system_prompt = """You are an expert evaluator. Rate the relevance of the location given a user's query on a scale of 1-5, where:
-    1 = Completely irrelevant
-    2 = Somewhat irrelevant
-    3 = Moderately relevant
-    4 = Very relevant
-    5 = Perfectly relevant
+async def compute_semantic_relativity(query: str, retrieved_nodes: List[Dict]) -> Dict[str, float]:
+    """Compute semantic relativity and score variability"""
+    system_prompt = """You are an expert evaluator. Rate the relevance of the location given a user's query on a scale of 0-100, where:
+
+    Consider:
+    1. How well the location matches the query intent
+    2. The relevance of the visual content
+    3. The location's hierarchical context
+    4. The accuracy and completeness of the match
     
-    Consider both the visual content and the hierarchical context in your evaluation.
     Return only the numerical score without explanation."""
-
-    def get_score_for_node(node, attempt_num):
-        try:
-            # Get image path
-            image_path = node.get('image_path', '')
-            if not image_path:
-                print(f"Attempt {attempt_num}: No image path available")
-                return None
-
-            # Use consistent path resolution
-            image_name = Path(image_path).name
-            absolute_image_path = image_dir / image_name  # Use image_dir directly
-            
-            print(f"Looking for image at: {absolute_image_path}")
-
-            if not absolute_image_path.exists():
-                print(f"Attempt {attempt_num}: Image not found at {absolute_image_path}")
-                return None
-
-            # Read and encode image
-            try:
-                with open(absolute_image_path, 'rb') as img_file:
-                    encoded_image = base64.b64encode(img_file.read()).decode()
-            except Exception as e:
-                print(f"Attempt {attempt_num}: Error reading image file: {str(e)}")
-                return None
-
-            # Format location with image and hierarchical context
-            location_text = (
-                f"Location Name: {node.get('name', 'Unnamed')}\n"
-                f"Parent Areas: {node.get('parent_areas', [])}\n"
-                f"Visual Content: [Image Attached]\n"
-                f"Description: {node.get('caption', 'No description')}"
-            )
-
-            prompt = f"""Query: {query}
-
-Location Information:
-{location_text}
-
-Rate the relevance of this location on a scale of 1-5:"""
-
-            # Get score from GPT-4 with image
-            func = llm.generate_response(
-                prompt, 
-                system_prompt,
-                image_base64=encoded_image
-            )
-            loop = asyncio.get_event_loop()
-            response = loop.run_until_complete(func)
-            try:
-                score = float(response.strip())
-                if 1 <= score <= 5:
-                    print(f"Attempt {attempt_num}: Score = {score}")
-                    return score
-                else:
-                    print(f"Attempt {attempt_num}: Invalid score range: {score}")
-            except ValueError:
-                print(f"Attempt {attempt_num}: Invalid response format: {response}")
-            
-        except Exception as e:
-            print(f"Attempt {attempt_num}: Error: {str(e)}")
-            traceback.print_exc()
-        return None
-
-    scores_per_node = []
-    for i, node in enumerate(retrieved_nodes[:5]):  # Only evaluate top 5
+    
+    async def get_score_for_node(node: Dict, node_index: int) -> float:
+        """Get average score for a single node with multiple attempts"""
         node_scores = []
         num_attempts = 5
         
         for attempt in range(num_attempts):
-            score = get_score_for_node(node, attempt + 1)
-            if score is not None:
-                node_scores.append(score)
-                print(f"Node {i+1}, Attempt {attempt + 1}: Score = {score}")
+            try:
+                # Get image path
+                image_path = node.get('image_path', '')
+                if not image_path:
+                    print(f"Node {node_index}, Attempt {attempt + 1}: No image path available")
+                    continue
+
+                # Use consistent path resolution
+                image_name = Path(image_path).name
+                absolute_image_path = image_dir / image_name
+                
+                if not absolute_image_path.exists():
+                    print(f"Node {node_index}, Attempt {attempt + 1}: Image not found at {absolute_image_path}")
+                    continue
+
+                # Read and encode image
+                try:
+                    with open(absolute_image_path, 'rb') as img_file:
+                        encoded_image = base64.b64encode(img_file.read()).decode()
+                except Exception as e:
+                    print(f"Node {node_index}, Attempt {attempt + 1}: Error reading image file: {str(e)}")
+                    continue
+
+                # Format location with image and hierarchical context
+                location_text = (
+                    f"Location Name: {node.get('name', 'Unnamed')}\n"
+                    f"Parent Areas: {node.get('parent_areas', [])}\n"
+                    f"Visual Content: [Image Attached]\n"
+                    f"Description: {node.get('caption', 'No description')}"
+                )
+
+                prompt = f"""Query: {query}
+
+Location Information:
+{location_text}
+
+Rate the relevance of this location on a scale of 0-100:"""
+
+                # Get score from GPT-4 with image
+                response = await llm.generate_response(
+                    prompt, 
+                    system_prompt,
+                    image_base64=encoded_image
+                )
+                
+                
+                try:
+                    score = float(response.strip())
+                    if 0 <= score <= 100:
+                        print(f"Node {node_index}, Attempt {attempt + 1}: Score = {score}")
+                        node_scores.append(score)
+                    else:
+                        print(f"Node {node_index}, Attempt {attempt + 1}: Invalid score range: {score}")
+                except ValueError:
+                    print(f"Node {node_index}, Attempt {attempt + 1}: Invalid response format: {response}")
+                
+            except Exception as e:
+                print(f"Node {node_index}, Attempt {attempt + 1}: Error: {str(e)}")
+                traceback.print_exc()
         
-        if node_scores:
-            # Average the scores for this node
-            avg_score = sum(node_scores) / len(node_scores)
-            scores_per_node.append(avg_score)
-            print(f"Node {i+1} Average Score: {avg_score:.4f}")
+        # Store raw scores in the node for later std calculation
+        node['_raw_scores'] = node_scores
+        return sum(node_scores) / len(node_scores) if node_scores else 0.0
 
+    # Evaluate all nodes in parallel
+    print("\nEvaluating nodes in parallel...")
+    tasks = [
+        get_score_for_node(node, i+1) 
+        for i, node in enumerate(retrieved_nodes[:5])  # Only evaluate top 5
+    ]
+    
+    scores_per_node = await asyncio.gather(*tasks)
+    
+    # Calculate standard deviation for top1 node (across its 5 attempts)
+    all_raw_scores = []  # Store all raw scores for top5 std calculation
+    top1_scores = []
+    
+    for i, score in enumerate(scores_per_node, 1):
+        node_raw_scores = retrieved_nodes[i-1].get('_raw_scores', [])  # Get raw scores from node
+        all_raw_scores.extend(node_raw_scores)  # Add to all scores for top5 std
+        if i == 1:  # Top 1 node
+            top1_scores = node_raw_scores
+    
+    # Calculate standard deviations
+    top1_std = np.std(top1_scores) if top1_scores else 0.0
+    top5_std = np.std(all_raw_scores) if all_raw_scores else 0.0
+    
+    print(f"\nScore Variability Metrics:")
+    print(f"Top 1 Score Std: {top1_std:.2f}")
+    print(f"Top 5 Score Std: {top5_std:.2f}")
+    
     if not scores_per_node:
-        return {'top1': 0.0, 'top5': 0.0}
-
+        return {'top1': 0.0, 'top5': 0.0, 'top1_std': 0.0, 'top5_std': 0.0}
+    
     # Normalize scores to 0-1 range
-    normalized_scores = [float(score - 1) / 4 for score in scores_per_node]
+    normalized_scores = [score / 100.0 for score in scores_per_node]
     
     return {
         'top1': normalized_scores[0] if normalized_scores else 0.0,
-        'top5': sum(normalized_scores) / len(normalized_scores) if normalized_scores else 0.0
+        'top5': sum(normalized_scores) / len(normalized_scores) if normalized_scores else 0.0,
+        'raw_scores': scores_per_node,
+        'top1_std': top1_std / 100.0,  # Normalize to 0-1 range
+        'top5_std': top5_std / 100.0   # Normalize to 0-1 range
     }
 
 def compute_haversine_distance(loc1: Dict, loc2: Dict) -> float:
@@ -294,39 +313,36 @@ def compute_haversine_distance(loc1: Dict, loc2: Dict) -> float:
     return R * c
 
 def compute_spatial_relativity(query_location: Dict, retrieved_nodes: List[Dict]) -> float:
-    """
-    Compute spatial relativity using exponential decay without a hard threshold
-    """
     if not retrieved_nodes:
         return 0.0
-
-    distances = []
-    decay_factor = 0.005  # Controls how quickly the score decays with distance
-                        # Smaller value = slower decay, larger value = faster decay
-
+    
+    scores = []
     for node in retrieved_nodes[:5]:
-        try:
-            # Get node location
-            node_loc = {
-                'latitude': node['position'].get('y', node['position'].get('latitude')),
-                'longitude': node['position'].get('x', node['position'].get('longitude'))
-            }
-            
-            # Compute distance
-            distance = compute_haversine_distance(query_location, node_loc)
-            
-            # Use exponential decay: score = e^(-decay_factor * distance)
-            score = np.exp(-decay_factor * distance)
-            distances.append(score)
-            
-            # Debug output
-            print(f"Distance: {distance:.1f}m, Score: {score:.4f}")
-            
-        except Exception as e:
-            print(f"Error computing distance: {str(e)}")
-            distances.append(0.0)
+        node_location = {
+            'latitude': node['position'].get('y', node['position'].get('latitude')),
+            'longitude': node['position'].get('x', node['position'].get('longitude'))
+        }
+        score = compute_spatial_score(query_location, node_location, max_distance=500.0)
+        scores.append(score)
+    
+    return sum(scores) / len(scores) if score else 0.0
 
-    return sum(distances) / len(distances) if distances else 0.0
+def compute_spatial_score(query_location: Dict, node_location: Dict, max_distance: float = 2000.0) -> float:
+    """
+    Compute spatial relevance score using linear normalization
+    Args:
+        query_location: Dict with latitude and longitude
+        node_location: Dict with latitude and longitude
+        max_distance: Maximum distance in meters (default 2000m)
+    Returns:
+        float: Normalized score between 0 and 1 (1 = same location, 0 = max_distance or further)
+    """
+    try:
+        distance = compute_haversine_distance(query_location, node_location)
+        score = max(0.0, min(1.0, 1.0 - (distance / max_distance)))
+        return score
+    except Exception as e:
+        return 0.0
 
 def evaluate_generated_response(query: str, generated_response: str, retrieved_nodes: List[Dict]) -> Dict:
     try:
@@ -356,19 +372,24 @@ def evaluate_generated_response(query: str, generated_response: str, retrieved_n
         semantic_scores = []
         num_attempts = 5
         for attempt in range(num_attempts):
-            score = compute_semantic_relativity(query, [generated_node])
+            # Call the async function inside asyncio.run(...)
+            score = asyncio.run(
+                compute_semantic_relativity(
+                    query=query,
+                    retrieved_nodes=[generated_node],  # wrap single node in a list
+                )
+            )
             if score['top1'] is not None:
                 semantic_scores.append(score['top1'])
                 print(f"Attempt {attempt + 1} Semantic Score: {score['top1']:.4f}")
-        
+
         # Average the semantic scores
         avg_semantic_score = sum(semantic_scores) / len(semantic_scores) if semantic_scores else 0.0
         
         # Get spatial score using retrieved nodes for comparison
         spatial_score = compute_spatial_relativity(
-            {'latitude': float(generated_node['position']['y']), 
-                'longitude': float(generated_node['position']['x'])}, 
-            retrieved_nodes  # Use retrieved nodes instead of [generated_node]
+            {'latitude': float(generated_node['position']['y']), 'longitude': float(generated_node['position']['x'])}, 
+            retrieved_nodes
         )
         
         # Calculate combined score
@@ -398,7 +419,12 @@ def evaluate_query(query_item, retrieved_nodes, response):
     use_history = query_item.get('use_history', False)
 
     # Compute retrieval metrics
-    semantic_scores = compute_semantic_relativity(query, retrieved_nodes)
+    semantic_scores = asyncio.run(
+        compute_semantic_relativity(
+            query=query,
+            retrieved_nodes=retrieved_nodes,  # wrap single node in a list
+        )
+    )
     spatial_score = compute_spatial_relativity(agent_location, retrieved_nodes)
     generation_scores = evaluate_generated_response(query, response, retrieved_nodes)
     
@@ -451,12 +477,19 @@ def main():
 
     # Directories and paths (adjust as needed)
     PROJECT_ROOT = "/root/code/E-RAG/Embodied-RAG"
-    graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/CMU_500/semantic_forest_CMU_500.gml")
-    query_path = os.path.join(PROJECT_ROOT, "query_locations.json")
-    results_dir = os.path.join(PROJECT_ROOT, "evaluation_results")
-    results_retrieval_path = os.path.join(results_dir, "graphrag.jsonl")
+    
+    graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/tokyo/semantic_forest_tokyo.gml")
+    # graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/CMU_500/semantic_forest_CMU_500.gml")
 
-    WORKING_DIR = "./work_dir"
+    # query_path = os.path.join(PROJECT_ROOT, "explicit_location_queries_tokyo.txt")
+    query_path = os.path.join(PROJECT_ROOT, "implicit_location_queries_tokyo.txt")
+    
+    results_dir = os.path.join(PROJECT_ROOT, "evaluation_results")
+
+    # results_retrieval_path = os.path.join(results_dir, "graphrag_explicit_tokyo.jsonl")
+    results_retrieval_path = os.path.join(results_dir, "graphrag_implicit_tokyo.jsonl")
+
+    WORKING_DIR = "./work_dir_tokyo"
     if not os.path.exists(WORKING_DIR):
         os.mkdir(WORKING_DIR)
 
@@ -483,8 +516,7 @@ def main():
 
     # Load queries
     with open(query_path) as f:
-        data = json.load(f)
-    queries = [d['query'] for d in data['query_locations']]
+        queries = [line.strip() for line in f]
 
     if args.query:
         for idx, query in enumerate(queries):
@@ -501,12 +533,18 @@ def main():
     retrieved_results, queries, responses = extract_locations_from_result(output, name2node)
 
     # Default center for Google Maps search (Example: Tokyo)
+    # default_center = {
+    #     'latitude': 40.443336,
+    #     'longitude': -79.944023
+    # }
     default_center = {
-        'latitude': 40.4433,
-        'longitude': -79.9436
+        'latitude': 35.6812,
+        'longitude': 139.7671
     }
 
-    time_str = datetime.now().isoformat()
+    # time_str = datetime.now().isoformat()
+    time_str = datetime.now().isoformat() + '_tokyo'
+    
     immediate_output_path = os.path.join(
         results_dir, f"results_graphrag_metadata_immediate_{time_str}.json"
     )
