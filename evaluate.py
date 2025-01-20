@@ -16,7 +16,8 @@ from llm import LLMInterface
 from pathlib import Path
 
 llm = LLMInterface()
-image_dir = Path('/root/code/E-RAG/data_generation/datasets/CMU_500/images/merged')
+# image_dir = Path('/root/code/E-RAG/data_generation/datasets/CMU_500/images/merged')
+image_dir = Path('/root/code/E-RAG/data_generation/datasets/tokyo/images/merged')
 
 def modify_jsonl_file(file_path, query_value, idx, result):
     """
@@ -481,13 +482,13 @@ def main():
     graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/tokyo/semantic_forest_tokyo.gml")
     # graph_path = os.path.join(PROJECT_ROOT, "semantic_forests/CMU_500/semantic_forest_CMU_500.gml")
 
-    # query_path = os.path.join(PROJECT_ROOT, "explicit_location_queries_tokyo.txt")
-    query_path = os.path.join(PROJECT_ROOT, "implicit_location_queries_tokyo.txt")
+    query_path = os.path.join(PROJECT_ROOT, "explicit_location_queries_tokyo.txt")
+    # query_path = os.path.join(PROJECT_ROOT, "implicit_location_queries_tokyo.txt")
     
     results_dir = os.path.join(PROJECT_ROOT, "evaluation_results")
 
-    # results_retrieval_path = os.path.join(results_dir, "graphrag_explicit_tokyo.jsonl")
-    results_retrieval_path = os.path.join(results_dir, "graphrag_implicit_tokyo.jsonl")
+    results_retrieval_path = os.path.join(results_dir, "graphrag_explicit_tokyo.jsonl")
+    # results_retrieval_path = os.path.join(results_dir, "graphrag_implicit_tokyo.jsonl")
 
     WORKING_DIR = "./work_dir_tokyo"
     if not os.path.exists(WORKING_DIR):
@@ -538,8 +539,8 @@ def main():
     #     'longitude': -79.944023
     # }
     default_center = {
-        'latitude': 35.6812,
-        'longitude': 139.7671
+        'latitude': 139.7671,
+        'longitude': 35.6812
     }
 
     # time_str = datetime.now().isoformat()
